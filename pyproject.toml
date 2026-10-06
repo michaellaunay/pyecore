@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyecore"
+version = "0.15.2"
+description = "A Python(ic) Implementation of the Eclipse Modeling Framework (EMF/Ecore)"
+readme = "README.rst"
+requires-python = ">=3.12"
+license = "BSD-3-Clause"
+license-files = ["LICENSE"]
+authors = [{name = "Vincent Aranega", email = "vincent.aranega@gmail.com"}]
+keywords = ["model", "metamodel", "EMF", "Ecore", "MDE"]
+dependencies = ["ordered-set>=4.0.1", "restrictedpython>=6.1", "lxml"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development",
+    "Topic :: Software Development :: Libraries",
+]
+
+[project.urls]
+Homepage = "https://github.com/pyecore/pyecore"
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[tool.setuptools]
+packages = ["pyecore", "pyecore.resources", "pyecore.type"]
+include-package-data = true
+
+[tool.setuptools.package-data]
+"*" = ["README.rst", "LICENSE", "CHANGELOG.rst"]
