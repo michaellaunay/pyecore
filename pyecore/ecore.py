@@ -441,13 +441,16 @@ class EOperation(ETypedElement):
         return name
 
     def to_code(self):
+        norm_name = self.normalized_name()
+        if not norm_name or not norm_name.isidentifier():
+            raise SyntaxError(f'Invalid operation name: {self.name!r}')
         parameters = [x.to_code() for x in self.eParameters]
         if len(parameters) == 0 or parameters[0] != 'self':
             parameters.insert(0, 'self')
-        norm_name = self.normalized_name()
         parameters = ', '.join(parameters)
+        message = f'Method {norm_name}({parameters}) is not yet implemented'
         return f"""def {norm_name}({parameters}):
-        raise NotImplementedError('Method {norm_name}({parameters}) is not yet implemented')
+        raise NotImplementedError({message!r})
         """ # noqa
 
 
@@ -456,10 +459,13 @@ class EParameter(ETypedElement):
         super().__init__(name, eType, **kwargs)
 
     def to_code(self):
+        if (not self.name or not self.name.isidentifier()
+                or keyword.iskeyword(self.name)):
+            raise SyntaxError(f'Invalid parameter name: {self.name!r}')
         if self.required:
             return f"{self.name}"
         default_value = getattr(self.eType, 'default_value', None)
-        return f"{self.name}={default_value}"
+        return f"{self.name}={default_value!r}"
 
 
 class ETypeParameter(ENamedElement):
@@ -894,10 +900,11 @@ class EClass(EClassifier):
     def __create_fun(self, eoperation):
         name = eoperation.normalized_name()
         namespace = {}
-        # code = compile(eoperation.to_code(), "<str>", "exec")
-        # exec(code, namespace)
+        # RestrictedPython's builtins are shared. Each operation owns both its
+        # globals and its builtins mapping; this is not a security sandbox.
+        operation_globals = {'__builtins__': dict(safe_builtins)}
         code = compile_restricted(eoperation.to_code(), '<inline>', 'exec')
-        exec(code, safe_builtins, namespace)
+        exec(code, operation_globals, namespace)
         setattr(self.python_class, name, namespace[name])
 
     def _update_supertypes(self):

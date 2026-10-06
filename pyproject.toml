@@ -12,7 +12,7 @@ license = "BSD-3-Clause"
 license-files = ["LICENSE"]
 authors = [{name = "Vincent Aranega", email = "vincent.aranega@gmail.com"}]
 keywords = ["model", "metamodel", "EMF", "Ecore", "MDE"]
-dependencies = ["ordered-set>=4.0.1", "restrictedpython>=6.1", "lxml"]
+dependencies = ["ordered-set>=4.0.1", "restrictedpython>=8.5,<8.6", "lxml"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Programming Language :: Python",

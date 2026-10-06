@@ -1,4 +1,4 @@
 ordered-set
 lxml
 defusedxml
-restrictedpython >= 5.3, >= 6.1
+restrictedpython >= 8.5, < 8.6

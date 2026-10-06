@@ -101,6 +101,7 @@ User Documentation
 .. toctree::
    :maxdepth: 2
 
+   dynamic_operations
    user/install
    user/quickstart
    user/advanced
