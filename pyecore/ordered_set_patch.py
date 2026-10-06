@@ -1,4 +1,5 @@
 import ordered_set
+from operator import index as as_index
 from typing import Iterable
 
 
@@ -38,13 +39,18 @@ def pop(self, index=-1):
     if not self.items:
         raise KeyError('Set is empty')
 
+    index = as_index(index)
+    if index < 0:
+        index += len(self.items)
+    if not 0 <= index < len(self.items):
+        raise IndexError('pop index out of range')
+
     elem = self.items[index]
     del self.items[index]
     del self.map[elem]
-    if elem != -1:
-        for k, v in self.map.items():
-            if v >= index and v > 0:
-                self.map[k] = v - 1
+    for k, v in self.map.items():
+        if v > index:
+            self.map[k] = v - 1
     return elem
 
 
