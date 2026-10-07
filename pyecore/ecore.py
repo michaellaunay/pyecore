@@ -96,17 +96,21 @@ class Core(object):
             elif inspect.isfunction(feature):
                 if k.startswith('__'):
                     continue
-                argspect = inspect.getfullargspec(feature)
-                args = argspect.args
+                options = {'follow_wrapped': False}
+                if sys.version_info >= (3, 14):
+                    from annotationlib import Format
+                    options['annotation_format'] = Format.STRING
+                signature = inspect.signature(feature, **options)
+                positional = [p for p in signature.parameters.values()
+                              if p.kind in (p.POSITIONAL_ONLY,
+                                            p.POSITIONAL_OR_KEYWORD)]
+                args = [p.name for p in positional]
                 if len(args) < 1 or args[0] != 'self':
                     continue
                 operation = EOperation(feature.__name__)
-                defaults = argspect.defaults
-                len_defaults = len(defaults) if defaults else 0
-                nb_required = len(args) - len_defaults
                 for i, parameter_name in enumerate(args):
                     parameter = EParameter(parameter_name, eType=ENativeType)
-                    if i < nb_required:
+                    if positional[i].default is inspect.Parameter.empty:
                         parameter.required = True
                     operation.eParameters.append(parameter)
                 rcls.eClass.eOperations.append(operation)
@@ -146,6 +150,12 @@ class Core(object):
 
 
 class Metasubinstance(type):
+    def mro(cls):
+        # A non-C3 dynamic model must not change resolution in other models.
+        if cls.__dict__.get('_pyecore_alternative_mro', False):
+            return Metasubinstance._mro_alternative(cls)
+        return super().mro()
+
     def __subclasscheck__(cls, other):
         if isinstance(other, EClass):
             other = other.python_class
@@ -843,7 +853,7 @@ class EClass(EClassifier):
                                                  super_types,
                                                  attr_dict)
                 except TypeError:
-                    Metasubinstance.mro = Metasubinstance._mro_alternative
+                    attr_dict['_pyecore_alternative_mro'] = True
                     instance.python_class = type(name, super_types, attr_dict)
 
         instance.__name__ = name
@@ -919,8 +929,27 @@ class EClass(EClassifier):
                                     reverse=True))
                 self.python_class.__bases__ = new_supers
             except TypeError:
-                Metasubinstance.mro = Metasubinstance._mro_alternative
-                self.python_class.__bases__ = new_supers
+                # __bases__ also recomputes descendants' MROs. Scope the
+                # compatibility fallback to this inheritance graph only.
+                pending = [self.python_class]
+                previous = {}
+                while pending:
+                    cls = pending.pop()
+                    if cls in previous:
+                        continue
+                    previous[cls] = cls.__dict__.get(
+                        '_pyecore_alternative_mro', None)
+                    cls._pyecore_alternative_mro = True
+                    pending.extend(cls.__subclasses__())
+                try:
+                    self.python_class.__bases__ = new_supers
+                except BaseException:
+                    for cls, value in previous.items():
+                        if value is None:
+                            del cls._pyecore_alternative_mro
+                        else:
+                            cls._pyecore_alternative_mro = value
+                    raise
 
     def __compute_supertypes(self):
         if not self.eSuperTypes and not self.eGenericSuperTypes:
