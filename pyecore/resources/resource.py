@@ -14,6 +14,7 @@ from ..innerutils import ignored
 from abc import abstractmethod
 from urllib.parse import urljoin
 from functools import lru_cache
+from contextlib import contextmanager
 
 
 global_registry = {}
@@ -213,8 +214,8 @@ class HttpURI(URI):
         super().__init__(uri)
 
     def create_instream(self):
-        self.__stream = urllib.request.urlopen(self.plain)
-        return self.__stream
+        self._URI__stream = urllib.request.urlopen(self.plain)
+        return self._URI__stream
 
     def create_outstream(self):
         raise NotImplementedError('Cannot create an outstream for HttpURI')
@@ -354,6 +355,48 @@ class Resource(object):
         self._resolve_mem = {}
         # self._feature_cache = {}
         self.cache_enabled = False
+
+    @contextmanager
+    def _load_transaction(self):
+        """Restore this resource after a failed load, including decoder state."""
+        contents = list(self.contents)
+        uuid_dict = dict(self.uuid_dict)
+        use_uuid = self.use_uuid
+        names = ('prefixes', 'reverse_nsmap', 'schema_locations',
+                 'xsitype', 'xmiid', 'schema_tag')
+        metadata = {name: (dict(value) if isinstance(value, dict) else value)
+                    for name in names if hasattr(self, name)
+                    for value in (getattr(self, name),)}
+        try:
+            yield
+        except BaseException:
+            for root in list(self.contents):
+                if root not in contents:
+                    root.delete()
+                    root._eresource = None
+            self.contents[:] = contents
+            self.uuid_dict.clear()
+            self.uuid_dict.update(uuid_dict)
+            self.use_uuid = use_uuid
+            for name in names:
+                if name not in metadata:
+                    self.__dict__.pop(name, None)
+                elif isinstance(metadata[name], dict):
+                    getattr(self, name).clear()
+                    getattr(self, name).update(metadata[name])
+                else:
+                    setattr(self, name, metadata[name])
+            raise
+        finally:
+            self.cache_enabled = False
+            self._resolve_mem.clear()
+            self._find_feature.cache_clear()
+            for name in ('_later', '_load_href', '_resolve_later'):
+                if hasattr(self, name):
+                    getattr(self, name).clear()
+            for name in ('_resolve_nonhref', 'resolve_eclass'):
+                if hasattr(self, name):
+                    getattr(self, name).cache_clear()
 
     @property
     def uri(self):

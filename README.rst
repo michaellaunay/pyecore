@@ -253,3 +253,34 @@ Additional Resources
 * `This article <http://modeling-languages.com/pyecore-python-eclipse-modeling-framework>`_
   on the blog of Professor Jordi Cabot gives more information and
   implementation details about PyEcore.
+
+XMI parser and resource errors
+------------------------------
+
+The XML parser policy requires lxml >= 5 (the first release supporting
+``resolve_entities='internal'``). XMI loads use a fresh ``lxml.etree.XMLParser`` with ``load_dtd=False``,
+``resolve_entities='internal'`` and ``no_network=True``. Internal DTD entities
+remain supported; external DTDs are not fetched and external entities are not
+expanded. This makes the lxml 6.x default policy explicit, independently of
+changes to the process-wide default parser. Applications requiring another
+policy can supply a parser for that load::
+
+    from lxml.etree import XMLParser
+    from pyecore.resources.xmi import XMIOptions
+
+    resource.load(options={XMIOptions.XML_PARSER:
+                           XMLParser(load_dtd=True, resolve_entities=True,
+                                     no_network=True)})
+
+Only enable external entities for trusted input. ``no_network`` controls XML
+parsing, not model references: ResourceSet/URI converters still support HTTP(S)
+model loading and lazy cross-resource proxy resolution as before.
+
+XMI and JSON close input and output streams on success and on errors, including
+alternate save destinations. Failed loads detach newly created roots and their
+references, restore previous roots, UUID and namespace registers, and clear
+transient decoder caches. ResourceSet removes a resource whose initial load
+failed. Successfully loaded dependency resources remain available. This is not
+a transaction over application notification callbacks or custom mapper side
+effects. Failed saves may leave a partial destination file; saving is not an
+atomic filesystem replacement.

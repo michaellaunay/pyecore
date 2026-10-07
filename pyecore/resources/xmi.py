@@ -3,7 +3,7 @@ The xmi module introduces XMI resource and XMI parsing.
 """
 from enum import unique, Enum
 from functools import lru_cache
-from lxml.etree import parse, QName, Element, SubElement, ElementTree
+from lxml.etree import parse, XMLParser, QName, Element, SubElement, ElementTree
 from .resource import Resource
 from ..ecore import EClass, EStringToStringMapEntry, EAnnotation, EProxy, \
                     EDataType
@@ -18,6 +18,7 @@ XMI_URL = 'http://www.omg.org/XMI'
 class XMIOptions(Enum):
     OPTION_USE_XMI_TYPE = 0
     SERIALIZE_DEFAULT_VALUES = 1
+    XML_PARSER = 2
 
 
 class XMIResource(Resource):
@@ -29,43 +30,51 @@ class XMIResource(Resource):
 
     def load(self, options=None):
         self.options = options or {}
-        self.cache_enabled = True
-        tree = parse(self.uri.create_instream())
-        xmlroot = tree.getroot()
-        self.prefixes.update(xmlroot.nsmap)
-        self.reverse_nsmap = {v: k for k, v in self.prefixes.items()}
+        with self._load_transaction():
+            stream = self.uri.create_instream()
+            try:
+                self.cache_enabled = True
+                parser = self.options.get(XMIOptions.XML_PARSER)
+                if parser is None:
+                    parser = XMLParser(load_dtd=False, resolve_entities='internal',
+                                       no_network=True)
+                tree = parse(stream, parser=parser)
+                xmlroot = tree.getroot()
+                self.prefixes.update(xmlroot.nsmap)
+                self.reverse_nsmap = {v: k for k, v in self.prefixes.items()}
 
-        self.xsitype = f'{{{self.prefixes.get(XSI)}}}type'
-        self.xmiid = f'{{{self.prefixes.get(XMI)}}}id'
-        self.schema_tag = f'{{{self.prefixes.get(XSI)}}}schemaLocation'
+                self.xsitype = f'{{{self.prefixes.get(XSI)}}}type'
+                self.xmiid = f'{{{self.prefixes.get(XMI)}}}id'
+                self.schema_tag = f'{{{self.prefixes.get(XSI)}}}schemaLocation'
 
-        # Decode the XMI
-        if f'{{{self.prefixes.get(XMI)}}}XMI' == xmlroot.tag:
-            real_roots = xmlroot
-        else:
-            real_roots = [xmlroot]
+                # Decode the XMI
+                if f'{{{self.prefixes.get(XMI)}}}XMI' == xmlroot.tag:
+                    real_roots = xmlroot
+                else:
+                    real_roots = [xmlroot]
 
-        def grouper(iterable):
-            args = [iter(iterable)] * 2
-            return zip(*args)
+                def grouper(iterable):
+                    args = [iter(iterable)] * 2
+                    return zip(*args)
 
-        self.schema_locations = {}
-        schema_tag_list = xmlroot.attrib.get(self.schema_tag, '')
-        for prefix, path in grouper(schema_tag_list.split()):
-            if '#' not in path:
-                path = path + '#'
-            self.schema_locations[prefix] = EProxy(path, self)
+                self.schema_locations = {}
+                schema_tag_list = xmlroot.attrib.get(self.schema_tag, '')
+                for prefix, path in grouper(schema_tag_list.split()):
+                    if '#' not in path:
+                        path = path + '#'
+                    self.schema_locations[prefix] = EProxy(path, self)
 
-        for root in real_roots:
-            modelroot = self._init_modelroot(root)
-            for child in root:
-                self._decode_eobject(child, modelroot)
+                for root in real_roots:
+                    modelroot = self._init_modelroot(root)
+                    for child in root:
+                        self._decode_eobject(child, modelroot)
 
-        if self.contents:
-            self._decode_ereferences()
+                if self.contents:
+                    self._decode_ereferences()
 
-        self._clean_registers()
-        self.uri.close_stream()
+                self._clean_registers()
+            finally:
+                self.uri.close_stream()
 
     def xsi_type_url(self):
         if self.options.get(XMIOptions.OPTION_USE_XMI_TYPE, False):
@@ -347,39 +356,41 @@ class XMIResource(Resource):
     def save(self, output=None, options=None):
         self.options = options or {}
         output = self.open_out_stream(output)
-        self.prefixes.clear()
-        self.reverse_nsmap.clear()
+        try:
+            self.prefixes.clear()
+            self.reverse_nsmap.clear()
 
-        serialize_default = \
-            self.options.get(XMIOptions.SERIALIZE_DEFAULT_VALUES,
-                             False)
-        nsmap = {XMI: XMI_URL}
+            serialize_default = \
+                self.options.get(XMIOptions.SERIALIZE_DEFAULT_VALUES,
+                                 False)
+            nsmap = {XMI: XMI_URL}
 
-        if len(self.contents) == 1:
-            root = self.contents[0]
-            self.register_eobject_epackage(root)
-            tmp_xmi_root = self._go_across(root, serialize_default)
-        else:
-            tag = QName(XMI_URL, 'XMI')
-            tmp_xmi_root = Element(tag)
-            for root in self.contents:
-                root_node = self._go_across(root, serialize_default)
-                tmp_xmi_root.append(root_node)
+            if len(self.contents) == 1:
+                root = self.contents[0]
+                self.register_eobject_epackage(root)
+                tmp_xmi_root = self._go_across(root, serialize_default)
+            else:
+                tag = QName(XMI_URL, 'XMI')
+                tmp_xmi_root = Element(tag)
+                for root in self.contents:
+                    root_node = self._go_across(root, serialize_default)
+                    tmp_xmi_root.append(root_node)
 
-        # update nsmap with prefixes register during the nodes creation
-        nsmap.update(self.prefixes)
-        xmi_root = Element(tmp_xmi_root.tag, nsmap=nsmap)
-        xmi_root[:] = tmp_xmi_root[:]
-        xmi_root.attrib.update(tmp_xmi_root.attrib)
-        xmi_version = QName(XMI_URL, 'version')
-        xmi_root.attrib[xmi_version] = '2.0'
-        tree = ElementTree(xmi_root)
-        tree.write(output,
-                   pretty_print=True,
-                   xml_declaration=True,
-                   encoding=tree.docinfo.encoding)
-        output.flush()
-        self.uri.close_stream()
+            # update nsmap with prefixes register during the nodes creation
+            nsmap.update(self.prefixes)
+            xmi_root = Element(tmp_xmi_root.tag, nsmap=nsmap)
+            xmi_root[:] = tmp_xmi_root[:]
+            xmi_root.attrib.update(tmp_xmi_root.attrib)
+            xmi_version = QName(XMI_URL, 'version')
+            xmi_root.attrib[xmi_version] = '2.0'
+            tree = ElementTree(xmi_root)
+            tree.write(output,
+                       pretty_print=True,
+                       xml_declaration=True,
+                       encoding=tree.docinfo.encoding)
+            output.flush()
+        finally:
+            output.close()
 
     def _add_explicit_type(self, node, obj):
         self.prefixes[XSI] = XSI_URL

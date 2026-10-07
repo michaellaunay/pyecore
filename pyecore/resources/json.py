@@ -30,40 +30,46 @@ class JsonResource(Resource):
 
     def load(self, options=None):
         self.options = options or {}
-        self.cache_enabled = True
-        json_value = self.uri.create_instream()
+        with self._load_transaction():
+            stream = self.uri.create_instream()
+            try:
+                self.cache_enabled = True
+                json_value = stream
 
-        decoder = self.options.get(JsonOptions.DECODER)
-        d = json.loads(json_value.read().decode('utf-8'), cls=decoder)
+                decoder = self.options.get(JsonOptions.DECODER)
+                d = json.loads(json_value.read().decode('utf-8'), cls=decoder)
 
-        if isinstance(d, list):
-            for x in d:
-                self.to_obj(x, first=True)
-        else:
-            self.to_obj(d, first=True)
-        self.uri.close_stream()
-        for inst, refs in self._load_href.items():
-            self.process_inst(inst, refs)
-        self._load_href.clear()
-        self._find_feature.cache_clear()
-        self.cache_enabled = False
+                if isinstance(d, list):
+                    for x in d:
+                        self.to_obj(x, first=True)
+                else:
+                    self.to_obj(d, first=True)
+                for inst, refs in self._load_href.items():
+                    self.process_inst(inst, refs)
+                self._load_href.clear()
+                self._find_feature.cache_clear()
+                self.cache_enabled = False
+            finally:
+                self.uri.close_stream()
 
     def save(self, output=None, options=None):
         self.options = options or {}
         stream = self.open_out_stream(output)
-        dict_list = []
-        for root in self.contents:
-            dict_list.append(self.to_dict(root))
-        if len(dict_list) <= 1:
-            dict_list = dict_list[0]
+        try:
+            dict_list = []
+            for root in self.contents:
+                dict_list.append(self.to_dict(root))
+            if len(dict_list) <= 1:
+                dict_list = dict_list[0]
 
-        encoder = self.options.get(JsonOptions.ENCODER)
-        stream.write(json.dumps(dict_list, indent=self.indent, cls=encoder)
-                     .encode('utf-8'))
+            encoder = self.options.get(JsonOptions.ENCODER)
+            stream.write(json.dumps(dict_list, indent=self.indent, cls=encoder)
+                         .encode('utf-8'))
 
-        stream.flush()
-        self.uri.close_stream()
-        self.options = None
+            stream.flush()
+            self.options = None
+        finally:
+            stream.close()
 
     def _uri_fragment(self, obj):
         if obj.eResource == self:
@@ -198,7 +204,8 @@ class JsonResource(Resource):
             self.append(inst)
 
         if self.use_uuid:
-            self.uuid_dict[d['uuid']] = inst
+            inst._internal_id = d['uuid']
+            self.uuid_dict[inst._internal_id] = inst
 
         eattributes = []
         containments = []
@@ -274,7 +281,7 @@ class DefaultObjectMapper(object):
                                             feature=attr)
             if write_object is not NO_OBJECT:
                 d[attr._name] = write_object
-            if use_uuid:
-                resource._assign_uuid(obj)
-                d['uuid'] = obj._internal_id
+        if use_uuid:
+            resource._assign_uuid(obj)
+            d['uuid'] = obj._internal_id
         return d
