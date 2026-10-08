@@ -44,8 +44,18 @@ class JsonResource(Resource):
                         self.to_obj(x, first=True)
                 else:
                     self.to_obj(d, first=True)
+                reference_orders = []
                 for inst, refs in self._load_href.items():
-                    self.process_inst(inst, refs)
+                    self.process_inst(inst, refs, reference_orders=reference_orders)
+                # Setting an inverse can reorder a previously loaded many-valued
+                # reference. Restore explicit sequences after synchronization,
+                # without propagating a second inverse update.
+                for collection, elements in reference_orders:
+                    if list(collection) != elements:
+                        for previous in list(collection):
+                            collection.remove(previous, update_opposite=False)
+                        for element in elements:
+                            collection.append(element, update_opposite=False)
                 self._load_href.clear()
                 self._find_feature.cache_clear()
                 self.cache_enabled = False
@@ -185,7 +195,15 @@ class JsonResource(Resource):
     def to_obj(self, d, owning_feature=None, first=False):
         is_ref = self.ref_tag in d
         if is_ref:
-            return EProxy(path=d[self.ref_tag], resource=self)
+            proxy = EProxy(path=d[self.ref_tag], resource=self)
+            # Non-containment references are applied after every object has
+            # been created. Opposites must use the same object identity on
+            # both sides, rather than mixing real objects and proxy wrappers.
+            if (owning_feature is not None and owning_feature.eOpposite
+                    and not owning_feature.containment
+                    and not self._is_external(d[self.ref_tag])[0]):
+                return proxy.force_resolve()
+            return proxy
         excludes = ['eClass', self.ref_tag, 'uuid']
         if 'eClass' in d:
             uri_eclass = d['eClass']
@@ -232,7 +250,8 @@ class JsonResource(Resource):
             self._load_href[inst] = ereferences
         return inst
 
-    def process_inst(self, inst, features, owning_feature=None):
+    def process_inst(self, inst, features, owning_feature=None, *,
+                     reference_orders=None):
         for feature, value in features:
             if feature._eType is EStringToStringMapEntry and isinstance(value, dict):
                 key, val = next(iter(value.items()))
@@ -247,7 +266,17 @@ class JsonResource(Resource):
                     elements = (x for x in elements if x is not None)
                 else:
                     elements = (feature._eType.from_string(x) for x in value)
-                inst.eGet(feature).extend(list(elements))
+                elements = list(elements)
+                if (feature.is_reference and feature.eOpposite
+                        and not feature.containment):
+                    # The inverse may already have populated this collection.
+                    # The serialized side is authoritative, including order
+                    # and multiplicity; extending it would add the inverse twice.
+                    inst.eSet(feature, elements)
+                    if reference_orders is not None:
+                        reference_orders.append((inst.eGet(feature), elements))
+                else:
+                    inst.eGet(feature).extend(elements)
             elif isinstance(value, str):
                 inst.eSet(feature, feature._eType.from_string(value))
             else:
