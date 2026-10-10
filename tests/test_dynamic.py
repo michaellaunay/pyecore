@@ -1141,7 +1141,6 @@ def test_create_dynamic_inheritances_inconsistent3():
     assert list(E.eAllSuperTypes()) == [C, D, A, B]
 
 
-@pytest.mark.skip(reason="currently fails with Python 3.5 and 3.6, but no time to debug for this version")
 def test_mix_dynamic_static_inheritance():
     A = EClass("A")
     A.eOperations.append(EOperation("spam"))
