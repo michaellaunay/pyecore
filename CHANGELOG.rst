@@ -1,3 +1,15 @@
+Unreleased — Python 3.14 migration (release decision pending)
+=============================================================
+
+- CPython >=3.12 metadata; qualified 3.12/3.13/3.14 standard with GIL on Linux x86_64 only.
+- Build backend setuptools >=83.0.0 and test extra pytest >=9.0.3. Project/module names, nsURI, licenses and author credits are retained.
+- Ordered collections preserve negative pop/index behavior and ordering.
+- RestrictedPython 8.5 integration uses isolated execution globals and preserves dynamic method signatures/defaults.
+- Python 3.14 deferred annotations, metaclasses and mixed static/dynamic inheritance are qualified.
+- XMI/JSON close streams on errors, restore load state and preserve UUID/internal identity; JSON opposite/containment references no longer duplicate resolved targets.
+
+Use the supported lxml >=6.1.0 and RestrictedPython >=8.5,<8.6 bounds. Recheck application notifications, containment, opposites and persisted models during migration.
+
 Changelog
 ---------
 
